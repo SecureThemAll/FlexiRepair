@@ -171,9 +171,10 @@ def getRun():
     parser = argparse.ArgumentParser(description='')
     # parser.add_argument('-subject', dest='subject', help='Environment')
     parser.add_argument('-root', dest='root', help='root folder')
-    parser.add_argument('-job',dest='job',help='job name')
-    parser.add_argument('-prop',dest='prop',help='property file')
-
+    parser.add_argument('-job', dest='job', help='job name')
+    parser.add_argument('-prop', dest='prop', help='property file')
+    parser.add_argument('--manifest_path', dest='manifest_path', type=str, help='Path for the manifest file',
+                        required=False)
 
     args = parser.parse_args()
 
@@ -182,6 +183,23 @@ def getRun():
         raise AttributeError
     return args
 
+
+def get_manifest(manifest_path: str):
+    import json
+    manifest_path = Path(manifest_path)
+
+    with manifest_path.open(mode='r') as mp:
+        return json.load(mp)
+
+
+def get_prioritization():
+    prioritization = os.environ["PRIORITIZION"]
+    p_types = {'project': 'uProject', 'patch': 'uPatch', 'file': 'uFilenames', 'function': 'uFunction', 'hunk': 'uFreq'}
+
+    if prioritization not in p_types:
+        raise Exception("Unknown prioritization " + prioritization)
+
+    return p_types[prioritization]
 
 
 def shellCallTemplate4jar(cmd,enc='utf-8'):
@@ -267,6 +285,8 @@ def shellGitCheckout(cmd,timeout =600,enc='utf-8'):
     with Popen(cmd, stdout=PIPE, stderr=PIPE, shell=True,encoding=enc) as p:
         try:
             output, errors = p.communicate(timeout=timeout)
+            if not errors and p.returncode and p.returncode != 0:
+                errors = f"code {p.returncode}"
             # print(output)
             logging.debug(cmd + '\t' +output)
             # logging.info(errors)
@@ -451,11 +471,15 @@ def parallelRun(coreFun,elements,*args,max_workers=os.cpu_count()):
             raise
 
 
-def parallelRunMerge(coreFun,elements,*args,max_workers=os.cpu_count()):
+def parallelRunMerge(elements, *args, coreFun=None, max_workers=os.cpu_count()):
     dataL = []
     with concurrent.futures.ProcessPoolExecutor(max_workers=max_workers) as executor:
         try:
-            futures = {executor.submit(coreFun, l,*args): l for l in elements}
+            if coreFun:
+                futures = {executor.submit(coreFun, el, *args): el for el in elements}
+            else:
+                futures = {executor.submit(el, *args): el for el in elements}
+
             kwargs = {
                 'total': len(futures),
                 'unit': 'files',
